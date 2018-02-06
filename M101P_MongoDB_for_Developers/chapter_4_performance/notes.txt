@@ -1,0 +1,214 @@
+-explain command
+db.students.explain().find({'student_id':5});
+
+explain command runs on top of regualr commands find, update, insert, etc and show what exactly mongo did such as used indexs or scan entire colection
+
+output:
+{
+	"queryPlanner" : {
+		"plannerVersion" : 1,
+		"namespace" : "school.students",
+		"indexFilterSet" : false,
+		"parsedQuery" : {
+			
+		},
+		"winningPlan" : {
+			"stage" : "COLLSCAN", <--collection scan
+			"stage" : "IXSCAN", <--collection scan
+			"direction" : "forward"
+		},
+		"rejectedPlans" : [ ]
+	},
+	"serverInfo" : {
+		"host" : "Doughboy.local",
+		"port" : 27017,
+		"version" : "3.6.1",
+		"gitVersion" : "025d4f4fe61efd1fb6f0005be20cb45a004093d1"
+	},
+	"ok" : 1
+}
+pass in true to actually run query: .explain(true)
+
+
+-create index, db.students.creatIndex({'student_id':1});
+
+
+-create compound index, db.students.creatIndex({'student_id':1, 'class_id': -1});,  
+	-indexed student_id: ascending 
+	-indexed class_id: descending
+
+	-1 = descending 
+	1 = ascending
+
+	-compound indexes may affect sorting
+
+
+-find out indexes, db.students.getIndexes();
+
+output:
+[
+	{							_____
+		"v" : 2,					|
+		"key" : {					|			
+			"_id" : 1				|
+		},							default index to _id
+		"name" : "_id_",			|
+		"ns" : "school.students"	|
+	},							____|
+	{							_____
+		"v" : 2,					|
+		"key" : {					|
+			"student_id" : 1		index created on student_id
+		},							|
+		"name" : "student_id_1",	|
+		"ns" : "school.students"	|
+	}							____|
+]
+
+
+
+-to remove and index, db.students.dropIndex({"student_id":1});
+
+-multikey indexes, db.foo.createIndex({a:1, b:[3, 5, 7]});
+	-will work fine
+	-if both are arrays a:[1,2,3], b:[4,5,6] = error: cannot index parallel arrays [a] [b]
+	-{a:1, b:1} = good
+	-{a:[1,2,3], b:1} = good
+	-{a:[1,2,3], b:[4,5,6]} = not good
+	-{a:1, b:[4,5,6]} = good
+
+
+-multi key and dot notation indexes
+object = {
+	student_id: 1,
+	scores: {
+		{
+			type: quiz,
+			score: 98 <--- to index this score, db.students.createIndex({'scores.score':1});
+		},
+		{
+			type: homework,
+			score: 79
+		}
+	},
+	class_id: 230
+}
+
+-to find with multiple criteria in a doc's array use "elematch"
+	db.students.find({'scores': {$elematch: : {'type': 'exam', 'score': {'$gt': 99.8}}}})
+	-its kinda like db.students.find({'$and': [{'scores.type': 'exam'}, {'scores.score': {'$gt': 99.8}}]}) <-- this isn't eaxactly right use elematch
+
+-create unique index, db.stuff.createIndex({thing: 1}, {unique: true});
+
+-create unique indexes on values that may be null, use sparse option, basically dont include documents that are missing the field indexed
+
+	-example db.employees.createIndex({'cell': 1}, {unique: true, sparse: true});
+
+	-dont use a sparse index if using sort
+
+
+- by default indexes are created in the foreground
+	-block wites and reads while running
+	-running in background way slower but doesnt block reads or writes
+
+
+-explain function
+	-usages
+		1. db.foo.find().explain()
+		2. db.foo.explain().find()
+						   .update()
+						   .remove()
+						   .aggregate()
+						   .help()
+		   -returns explain obj
+
+	   3. var exp_obj = db.foo.explain()
+	   		- exp_obj.help()
+
+	- winning plan in callback is what is used
+
+	- 3 types of explain mode
+		1. query planner (default)
+		2. execution stats
+		3. all plans execution
+
+
+- covered query
+	- query satified entirely with an index
+		- fastest type of query since 0 docs need to be inspected
+
+	- best way to achieve this is by projecting on only indexed fields
+
+- index cardinality
+	- regualr = 1:1											----|
+	- sparse = keys < actual amt of documents, less accurate	|-- the issues lie when these docs are moved from inserts etc the key have 
+	- multikey = keys > actual amt docs, significantly		____|    to be rewriten
+
+
+- geospatial indexes
+	- cartessian plane (x, y grid)
+		- value in DB = {location: [x, y]}
+		- index = db.foo.ensureIndex({location: '2d'});
+		- query = db.foo.find({location: {$near: [x, y]}})
+			-returned in order of increasing distance
+
+	- spherical (lat, long)
+		- value in db = {location: {
+								"type": "Point",
+								"coordinates": [
+									-122.23, <-- longitude
+									37.44    <-- latitude
+								]
+							}
+						}
+		- uses GeoJSON http://geojson.org/geojson-spec.html
+		- index = db.foo.ensureIndex({location: '2dsphere'});
+		- query = db.foo.find({location: {
+									$near: {
+									$geometry:{
+									type: "Point",
+									coordinates: [-122.23, 37.44],
+									$maxdistance: 2000 <-- km
+								}
+								}
+								}});
+		- you can also pass in $maxDistance
+
+
+- text indexes
+	- basically it's tedious to search for genral text in docs so use text indexes for the search operator
+		- index, db.foo.ensureIndex({'words': 'text'});
+		- query, db.foo.find({$text: {$search: 'query'}});
+
+		- mongo can actually return value on query match score off the text
+			- db.foo.find({$text: {$search: 'query'}}, {score: {$meta: 'textScore'}}).sort(score: {$meta: 'textScore'}});
+				-will return values based on how close your search is to the results
+
+
+- you can use ".hint()" to a index to use specifically
+
+- logging slow queries
+	- any queries that are over 100ms get logged to the start logs when you run mongod
+
+- profile
+	- levels
+		0. Off, default
+		1. log slow queries, performance debugging
+		2. log all queries, dev debugging
+
+	- to run
+		- mongod -dbpath /some/path/ --profile 1 --slowms 2
+
+	- from shell
+		- db.getProfilingLevel()
+		- db.getProfilingStatus()
+		- db.setProfilingLevel(1, 4)
+			- db.setProfilingLevel(level, slowms)
+
+	- query profiler
+		- db.foo.find().pretty();
+			- specify queries to certain collections
+				db.sysprofile.find({ns: /school2.students/})
+			-sort by latency
+				 db.sysprofile.find({ns: /school2.students/}).sort({millis: -1}).pretty();
+
