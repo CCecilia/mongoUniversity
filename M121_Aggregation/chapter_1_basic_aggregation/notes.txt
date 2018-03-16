@@ -1,0 +1,21 @@
+$match: Filtering Documents
+	- syntax
+		db.collection.aggregate([{
+			$match:  { }
+		}])
+
+	- match is a filter not a find
+
+	- uses $match as first stage enable use of indexes
+
+	- $ne = not equal
+
+	- match does not have any prjection
+
+	1. a $match tage may contain a $text query operator but must be first stage in pipeline
+
+	2. $match should come early in pipeline
+
+	3. you cannot use $match with $where
+
+	4. $match uses same query syntax as find
